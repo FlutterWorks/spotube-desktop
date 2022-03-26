@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "Spotube"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "KRTirtho, OSS"
 #define MyAppURL "https://github.com/KRTirtho/spotube"
 #define MyAppExeName "spotube.exe"
@@ -43,6 +43,7 @@ Source: "..\build\windows\runner\Release\flutter_windows.dll"; DestDir: "{app}";
 Source: "..\build\windows\runner\Release\hotkey_manager_plugin.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\windows\runner\Release\libwinmedia.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\windows\runner\Release\libwinmedia_plugin.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\windows\runner\Release\permission_handler_windows_plugin.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\windows\runner\Release\spotube.exp"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\windows\runner\Release\spotube.lib"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\windows\runner\Release\url_launcher_windows_plugin.dll"; DestDir: "{app}"; Flags: ignoreversion

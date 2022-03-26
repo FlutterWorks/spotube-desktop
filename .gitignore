@@ -62,3 +62,11 @@ app.*.map.json
 
 /iscc
 installer.exe
+
+/choco-struct/tools/*.exe
+
+# secrets
+*.env
+lib/models/generated_secrets.dart
+help.txt
+secrets.json

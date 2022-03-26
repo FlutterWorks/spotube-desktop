@@ -1,82 +1,71 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:spotube/components/Settings.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:spotify/spotify.dart';
 import 'package:spotube/helpers/artist-to-string.dart';
 import 'package:spotube/helpers/getLyrics.dart';
+import 'package:spotube/hooks/useBreakpoints.dart';
 import 'package:spotube/provider/Playback.dart';
 import 'package:spotube/provider/UserPreferences.dart';
 
-class Lyrics extends StatefulWidget {
+class Lyrics extends HookConsumerWidget {
   const Lyrics({Key? key}) : super(key: key);
 
   @override
-  State<Lyrics> createState() => _LyricsState();
-}
+  Widget build(BuildContext context, ref) {
+    Playback playback = ref.watch(playbackProvider);
+    UserPreferences userPreferences = ref.watch(userPreferencesProvider);
+    final lyrics = useState({});
 
-class _LyricsState extends State<Lyrics> {
-  Map<String, String> _lyrics = {};
-
-  @override
-  Widget build(BuildContext context) {
-    Playback playback = context.watch<Playback>();
-    UserPreferences userPreferences = context.watch<UserPreferences>();
-
-    bool hasToken = (userPreferences.geniusAccessToken != null ||
-        (userPreferences.geniusAccessToken?.isNotEmpty ?? false));
-
-    if (playback.currentTrack != null &&
-        hasToken &&
-        playback.currentTrack!.id != _lyrics["id"]) {
-      getLyrics(
-        playback.currentTrack!.name!,
-        artistsToString(playback.currentTrack!.artists ?? []),
-        apiKey: userPreferences.geniusAccessToken!,
-        optimizeQuery: true,
-      ).then((lyrics) {
-        if (lyrics != null) {
-          setState(() {
-            _lyrics = {"lyrics": lyrics, "id": playback.currentTrack!.id!};
-          });
-        }
-      });
-    }
-
-    if (_lyrics["lyrics"] != null && playback.currentTrack == null) {
-      setState(() {
-        _lyrics = {};
-      });
-    }
-
-    if (_lyrics["lyrics"] == null && playback.currentTrack != null) {
-      if (!hasToken) {
-        return Expanded(
-            child: Column(
-          children: [
-            Text(
-              "Genius lyrics API access token isn't set",
-              style: Theme.of(context)
-                  .textTheme
-                  .headline4
-                  ?.copyWith(color: Colors.red[400]),
-            ),
-            ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (context) {
-                      return const Settings();
-                    },
-                  ));
-                },
-                child: const Text("Add Access Token"))
-          ],
-        ));
+    final lyricsFuture = useMemoized(() {
+      if (playback.currentTrack == null ||
+          userPreferences.geniusAccessToken.isEmpty ||
+          (playback.currentTrack?.id != null &&
+              playback.currentTrack?.id == lyrics.value["id"])) {
+        return null;
       }
+      return getLyrics(
+        playback.currentTrack!.name!,
+        artistsToString<Artist>(playback.currentTrack!.artists ?? []),
+        apiKey: userPreferences.geniusAccessToken,
+        optimizeQuery: true,
+      );
+    }, [playback.currentTrack, userPreferences.geniusAccessToken]);
+
+    final lyricsSnapshot = useFuture(lyricsFuture);
+
+    useEffect(() {
+      if (lyricsSnapshot.hasData &&
+          lyricsSnapshot.data != null &&
+          playback.currentTrack != null) {
+        lyrics.value = {
+          "lyrics": lyricsSnapshot.data,
+          "id": playback.currentTrack!.id!
+        };
+      }
+
+      if (lyrics.value["lyrics"] != null && playback.currentTrack == null) {
+        lyrics.value = {};
+      }
+      return null;
+    }, [
+      lyricsSnapshot.data,
+      lyricsSnapshot.hasData,
+      lyrics.value,
+      playback.currentTrack,
+    ]);
+
+    final breakpoint = useBreakpoints();
+
+    if (lyrics.value["lyrics"] == null && playback.currentTrack != null) {
       return const Expanded(
         child: Center(
           child: CircularProgressIndicator.adaptive(),
         ),
       );
     }
+
+    final textTheme = Theme.of(context).textTheme;
 
     return Expanded(
       child: Column(
@@ -85,23 +74,32 @@ class _LyricsState extends State<Lyrics> {
           Center(
             child: Text(
               playback.currentTrack?.name ?? "",
-              style: Theme.of(context).textTheme.headline3,
+              style: breakpoint >= Breakpoints.md
+                  ? textTheme.headline3
+                  : textTheme.headline4?.copyWith(fontSize: 25),
             ),
           ),
           Center(
             child: Text(
-              artistsToString(playback.currentTrack?.artists ?? []),
-              style: Theme.of(context).textTheme.headline5,
+              artistsToString<Artist>(playback.currentTrack?.artists ?? []),
+              style: breakpoint >= Breakpoints.md
+                  ? textTheme.headline5
+                  : textTheme.headline6,
             ),
           ),
           Expanded(
             child: SingleChildScrollView(
               child: Center(
-                child: Text(
-                  _lyrics["lyrics"] == null && playback.currentTrack == null
-                      ? "No Track being played currently"
-                      : _lyrics["lyrics"]!,
-                  style: Theme.of(context).textTheme.headline6,
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    lyrics.value["lyrics"] == null &&
+                            playback.currentTrack == null
+                        ? "No Track being played currently"
+                        : lyrics.value["lyrics"]!,
+                    style: textTheme.headline6
+                        ?.copyWith(color: textTheme.headline1?.color),
+                  ),
                 ),
               ),
             ),

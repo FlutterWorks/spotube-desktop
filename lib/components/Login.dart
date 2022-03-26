@@ -1,159 +1,131 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
+import 'package:go_router/go_router.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:spotify/spotify.dart' hide Image;
-import 'package:spotube/components/Home.dart';
-import 'package:spotube/components/PageWindowTitleBar.dart';
-import 'package:spotube/helpers/server_ipc.dart';
+import 'package:spotube/components/Shared/Hyperlink.dart';
+import 'package:spotube/components/Shared/PageWindowTitleBar.dart';
+import 'package:spotube/helpers/oauth-login.dart';
+import 'package:spotube/hooks/useBreakpoints.dart';
 import 'package:spotube/models/LocalStorageKeys.dart';
+import 'package:spotube/models/Logger.dart';
 import 'package:spotube/provider/Auth.dart';
+import 'package:spotube/provider/UserPreferences.dart';
 
-class Login extends StatefulWidget {
+class Login extends HookConsumerWidget {
+  Login({Key? key}) : super(key: key);
+  final log = createLogger(Login);
+
   @override
-  _LoginState createState() => _LoginState();
-}
+  Widget build(BuildContext context, ref) {
+    Auth authState = ref.watch(authProvider);
+    final clientIdController = useTextEditingController();
+    final clientSecretController = useTextEditingController();
+    final accessTokenController = useTextEditingController();
+    final fieldError = useState(false);
+    final breakpoint = useBreakpoints();
 
-class _LoginState extends State<Login> {
-  String clientId = "";
-  String clientSecret = "";
-  bool _fieldError = false;
-  String? accessToken;
-  String? refreshToken;
-  DateTime? expiration;
-
-  handleLogin(Auth authState) async {
-    try {
-      if (clientId == "" || clientSecret == "") {
-        return setState(() {
-          _fieldError = true;
-        });
+    Future handleLogin(Auth authState) async {
+      try {
+        if (clientIdController.value.text == "" ||
+            clientSecretController.value.text == "") {
+          fieldError.value = true;
+        }
+        await oauthLogin(
+          ref.read(authProvider),
+          clientId: clientIdController.value.text,
+          clientSecret: clientSecretController.value.text,
+        ).then(
+          (value) => GoRouter.of(context).pop(),
+        );
+      } catch (e) {
+        log.e("[Login.handleLogin] $e");
       }
-      final credentials = SpotifyApiCredentials(clientId, clientSecret);
-      final grant = SpotifyApi.authorizationCodeGrant(credentials);
-      const redirectUri = "http://localhost:4304/auth/spotify/callback";
-
-      final authUri = grant.getAuthorizationUrl(Uri.parse(redirectUri),
-          scopes: spotifyScopes);
-
-      final responseUri = await connectIpc(authUri.toString(), redirectUri);
-      SharedPreferences localStorage = await SharedPreferences.getInstance();
-      if (responseUri != null) {
-        final SpotifyApi spotify =
-            SpotifyApi.fromAuthCodeGrant(grant, responseUri);
-        var credentials = await spotify.getCredentials();
-        if (credentials.accessToken != null) {
-          accessToken = credentials.accessToken;
-          await localStorage.setString(
-              LocalStorageKeys.accessToken, credentials.accessToken!);
-        }
-        if (credentials.refreshToken != null) {
-          refreshToken = credentials.refreshToken;
-          await localStorage.setString(
-              LocalStorageKeys.refreshToken, credentials.refreshToken!);
-        }
-        if (credentials.expiration != null) {
-          expiration = credentials.expiration;
-          await localStorage.setString(LocalStorageKeys.expiration,
-              credentials.expiration?.toString() ?? "");
-        }
-      }
-
-      await localStorage.setString(LocalStorageKeys.clientId, clientId);
-      await localStorage.setString(
-        LocalStorageKeys.clientSecret,
-        clientSecret,
-      );
-      authState.setAuthState(
-        clientId: clientId,
-        clientSecret: clientSecret,
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-        expiration: expiration,
-        isLoggedIn: true,
-      );
-    } catch (e) {
-      print("[Login.handleLogin] $e");
     }
-  }
 
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<Auth>(
-      builder: (context, authState, child) {
-        return Scaffold(
-          body: Column(
-            children: [
-              const PageWindowTitleBar(),
-              Expanded(
-                child: Center(
+    final textTheme = Theme.of(context).textTheme;
+
+    return Scaffold(
+      appBar: const PageWindowTitleBar(leading: BackButton()),
+      body: SingleChildScrollView(
+        child: Center(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            child: Column(
+              children: [
+                Image.asset(
+                  "assets/spotube-logo.png",
+                  width: MediaQuery.of(context).size.width *
+                      (breakpoint <= Breakpoints.md ? .5 : .3),
+                ),
+                Text("Add your spotify credentials to get started",
+                    style: breakpoint <= Breakpoints.md
+                        ? textTheme.headline5
+                        : textTheme.headline4),
+                const Text(
+                    "Don't worry, any of your credentials won't be collected or shared with anyone"),
+                const Hyperlink("How to get these client-id & client-secret?",
+                    "https://github.com/KRTirtho/spotube#configuration"),
+                const SizedBox(
+                  height: 10,
+                ),
+                Container(
+                  constraints: const BoxConstraints(
+                    maxWidth: 400,
+                  ),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Image.asset(
-                        "assets/spotube-logo.png",
-                        width: 400,
-                        height: 400,
+                      TextField(
+                        controller: clientIdController,
+                        decoration: const InputDecoration(
+                          hintText: "Spotify Client ID",
+                          label: Text("ClientID"),
+                        ),
                       ),
-                      Text("Add your spotify credentials to get started",
-                          style: Theme.of(context).textTheme.headline4),
-                      const Text(
-                          "Don't worry, any of your credentials won't be collected or shared with anyone"),
+                      const SizedBox(height: 10),
+                      TextField(
+                        decoration: const InputDecoration(
+                          hintText: "Spotify Client Secret",
+                          label: Text("Client Secret"),
+                        ),
+                        controller: clientSecretController,
+                      ),
+                      const SizedBox(height: 10),
+                      const Divider(color: Colors.grey),
+                      const SizedBox(height: 10),
+                      TextField(
+                        decoration: const InputDecoration(
+                          label: Text("Genius Access Token (optional)"),
+                        ),
+                        controller: accessTokenController,
+                      ),
                       const SizedBox(
                         height: 10,
                       ),
-                      Container(
-                        constraints: const BoxConstraints(
-                          maxWidth: 400,
-                        ),
-                        child: Column(
-                          children: [
-                            TextField(
-                              decoration: const InputDecoration(
-                                hintText: "Spotify Client ID",
-                                label: Text("ClientID"),
-                              ),
-                              onChanged: (value) {
-                                setState(() {
-                                  clientId = value;
-                                });
-                              },
-                            ),
-                            const SizedBox(
-                              height: 10,
-                            ),
-                            TextField(
-                              decoration: const InputDecoration(
-                                hintText: "Spotify Client Secret",
-                                label: Text("Client Secret"),
-                              ),
-                              onChanged: (value) {
-                                setState(() {
-                                  clientSecret = value;
-                                });
-                              },
-                            ),
-                            const SizedBox(
-                              height: 10,
-                            ),
-                            ElevatedButton(
-                              onPressed: () {
-                                handleLogin(authState);
-                              },
-                              child: const Text("Submit"),
-                            )
-                          ],
-                        ),
-                      ),
+                      ElevatedButton(
+                        onPressed: () async {
+                          await handleLogin(authState);
+                          UserPreferences preferences =
+                              ref.read(userPreferencesProvider);
+                          SharedPreferences localStorage =
+                              await SharedPreferences.getInstance();
+                          preferences.setGeniusAccessToken(
+                              accessTokenController.value.text);
+                          await localStorage.setString(
+                              LocalStorageKeys.geniusAccessToken,
+                              accessTokenController.value.text);
+                          accessTokenController.text = "";
+                        },
+                        child: const Text("Submit"),
+                      )
                     ],
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
