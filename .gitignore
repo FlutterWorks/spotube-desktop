@@ -32,7 +32,6 @@
 /build/
 
 # Web related
-lib/generated_plugin_registrant.dart
 
 # Symbolication related
 app.*.symbols
@@ -45,13 +44,13 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-
 *.pkg.tar.zst
 /aur-struct/*.tar
 /aur-struct/src
 /aur-struct/pkg
 
 /deb-struct/usr
+/linux/packaging/deb/usr
 
 /AppDir
 /appimage-builder-cache
@@ -70,3 +69,11 @@ installer.exe
 lib/models/generated_secrets.dart
 help.txt
 secrets.json
+
+dist
+appimage-build
+
+android/key.properties
+.fvm/flutter_sdk
+
+**/pb_data

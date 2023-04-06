@@ -19,7 +19,7 @@ tar:
 		&& cp linux/spotube.desktop $(TEMP_DIR)\
 		&& cp assets/spotube-logo.png $(TEMP_DIR)\
 		&& cp linux/com.github.KRTirtho.Spotube.appdata.xml $(TEMP_DIR)\
-		&& tar -cJf build/Spotube-linux-x86_64.tar.xz -C $(TEMP_DIR) .\
+		&& tar -cJf build/spotube-linux-${VERSION}-x86_64.tar.xz -C $(TEMP_DIR) .\
 		&& rm -rf $(TEMP_DIR)
 
 appimage:
@@ -44,11 +44,11 @@ innoinstall:
 		 				powershell build\installer.exe /verysilent /allusers /dir=build\iscc
 
 inno:
-		 powershell build\iscc\iscc.exe scripts\windows-setup-creator.iss
+		 powershell .\build\iscc\iscc.exe scripts\windows-setup-creator.iss
 
 choco:
-			powershell cp build\installer\Spotube-windows-x86_64-setup.exe choco-struct\tools
-			powershell choco pack .\choco-struct\spotube.nuspec  --outputdirectory build
+			powershell cp dist\Spotube-windows-x86_64-setup.exe choco-struct\tools
+			powershell choco pack .\choco-struct\spotube.nuspec  --outputdirectory dist
 
 apk:
 		mv build/app/outputs/apk/release/app-release.apk build/Spotube-android-all-arch.apk

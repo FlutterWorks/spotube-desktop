@@ -1,172 +1,340 @@
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:bitsdojo_window/bitsdojo_window.dart';
+import 'package:args/args.dart';
+import 'package:catcher/catcher.dart';
+import 'package:fl_query/fl_query.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
-import 'package:go_router/go_router.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:hotkey_manager/hotkey_manager.dart';
+import 'package:metadata_god/metadata_god.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:platform_ui/platform_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:spotube/models/GoRouteDeclarations.dart';
-import 'package:spotube/models/LocalStorageKeys.dart';
-import 'package:spotube/models/Logger.dart';
-import 'package:spotube/provider/AudioPlayer.dart';
-import 'package:spotube/provider/ThemeProvider.dart';
-import 'package:spotube/provider/YouTube.dart';
-import 'package:just_audio_background/just_audio_background.dart';
+import 'package:spotube/collections/cache_keys.dart';
+import 'package:spotube/collections/env.dart';
+import 'package:spotube/components/shared/dialogs/replace_downloaded_dialog.dart';
+import 'package:spotube/entities/cache_track.dart';
+import 'package:spotube/collections/routes.dart';
+import 'package:spotube/collections/intents.dart';
+import 'package:spotube/models/logger.dart';
+import 'package:spotube/provider/downloader_provider.dart';
+import 'package:spotube/provider/user_preferences_provider.dart';
+import 'package:spotube/services/audio_player.dart';
+import 'package:spotube/services/pocketbase.dart';
+import 'package:spotube/services/youtube.dart';
+import 'package:spotube/themes/light_theme.dart';
+import 'package:spotube/utils/platform.dart';
+import 'package:window_manager/window_manager.dart';
+import 'package:window_size/window_size.dart';
 
-void main() async {
-  if (Platform.isAndroid || Platform.isIOS) {
-    await JustAudioBackground.init(
-      androidNotificationChannelId: 'oss.krtirtho.Spotube',
-      androidNotificationChannelName: 'Spotube',
-      androidNotificationOngoing: true,
+void main(List<String> rawArgs) async {
+  final parser = ArgParser();
+
+  parser.addFlag(
+    'verbose',
+    abbr: 'v',
+    help: 'Verbose mode',
+    defaultsTo: !kReleaseMode,
+    callback: (verbose) {
+      if (verbose) {
+        logEnv['VERBOSE'] = 'true';
+        logEnv['DEBUG'] = 'true';
+        logEnv['ERROR'] = 'true';
+      }
+    },
+  );
+  parser.addFlag(
+    "version",
+    help: "Print version and exit",
+    negatable: false,
+  );
+
+  parser.addFlag("help", abbr: "h", negatable: false);
+
+  final arguments = parser.parse(rawArgs);
+
+  if (arguments["help"] == true) {
+    print(parser.usage);
+    exit(0);
+  }
+
+  if (arguments["version"] == true) {
+    final package = await PackageInfo.fromPlatform();
+    print("Spotube v${package.version}");
+    exit(0);
+  }
+
+  WidgetsFlutterBinding.ensureInitialized();
+  MetadataGod.initialize();
+  await QueryClient.initialize(cachePrefix: "oss.krtirtho.spotube");
+  Hive.registerAdapter(CacheTrackAdapter());
+  Hive.registerAdapter(CacheTrackEngagementAdapter());
+  Hive.registerAdapter(CacheTrackSkipSegmentAdapter());
+  await Env.configure();
+
+  if (kIsDesktop) {
+    await windowManager.ensureInitialized();
+    WindowOptions windowOptions = const WindowOptions(
+      center: true,
+      backgroundColor: Colors.transparent,
+      titleBarStyle: TitleBarStyle.hidden,
+      title: "Spotube",
     );
-  } else {
-    WidgetsFlutterBinding.ensureInitialized();
-    await hotKeyManager.unregisterAll();
-    doWhenWindowReady(() {
-      appWindow.minSize =
-          Size(Platform.isAndroid || Platform.isIOS ? 280 : 359, 700);
-      appWindow.size = const Size(900, 700);
-      appWindow.alignment = Alignment.center;
-      appWindow.maximize();
-      appWindow.show();
+    setWindowMinSize(const Size(kReleaseMode ? 1020 : 300, 700));
+    await windowManager.waitUntilReadyToShow(windowOptions, () async {
+      final localStorage = await SharedPreferences.getInstance();
+      final rawSize = localStorage.getString(LocalStorageKeys.windowSizeInfo);
+      final savedSize = rawSize != null ? json.decode(rawSize) : null;
+      final wasMaximized = savedSize?["maximized"] ?? false;
+      final double? height = savedSize?["height"];
+      final double? width = savedSize?["width"];
+      await windowManager.setResizable(true);
+      if (wasMaximized) {
+        await windowManager.maximize();
+      } else if (height != null && width != null) {
+        await windowManager.setSize(Size(width, height));
+      }
+      await windowManager.show();
     });
   }
-  runApp(ProviderScope(child: MyApp()));
+
+  Catcher(
+    enableLogger: arguments["verbose"],
+    debugConfig: CatcherOptions(
+      SilentReportMode(),
+      [
+        ConsoleHandler(
+          enableDeviceParameters: false,
+          enableApplicationParameters: false,
+        ),
+        FileHandler(await getLogsPath(), printLogs: false),
+        SnackbarHandler(
+          const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: "Dismiss",
+            onPressed: () {
+              ScaffoldMessenger.of(
+                Catcher.navigatorKey!.currentContext!,
+              ).hideCurrentSnackBar();
+            },
+          ),
+        ),
+      ],
+    ),
+    releaseConfig: CatcherOptions(SilentReportMode(), [
+      if (arguments["verbose"] ?? false)
+        ConsoleHandler(
+          enableDeviceParameters: false,
+          enableApplicationParameters: false,
+        ),
+      FileHandler(
+        await getLogsPath(),
+        printLogs: false,
+      ),
+    ]),
+    runAppFunction: () {
+      runApp(
+        Builder(
+          builder: (context) {
+            return ProviderScope(
+              overrides: [
+                downloaderProvider.overrideWith(
+                  (ref) {
+                    return Downloader(
+                      ref,
+                      queueInstance,
+                      yt: youtube,
+                      downloadPath: ref.watch(
+                        userPreferencesProvider.select(
+                          (s) => s.downloadLocation,
+                        ),
+                      ),
+                      onFileExists: (track) {
+                        final logger = getLogger(Downloader);
+                        try {
+                          logger.v(
+                            "[onFileExists] download confirmation for ${track.name}",
+                          );
+                          return showPlatformAlertDialog<bool>(
+                            context,
+                            builder: (_) =>
+                                ReplaceDownloadedDialog(track: track),
+                          ).then((s) => s ?? false);
+                        } catch (e, stack) {
+                          Catcher.reportCheckedError(e, stack);
+                          return false;
+                        }
+                      },
+                    );
+                  },
+                )
+              ],
+              child: QueryClientProvider(
+                staleDuration: const Duration(minutes: 30),
+                child: const Spotube(),
+              ),
+            );
+          },
+        ),
+      );
+    },
+  );
+  await initializePocketBase();
 }
 
-class MyApp extends HookConsumerWidget {
-  final GoRouter _router = createGoRouter();
-  final logger = createLogger(MyApp);
+class Spotube extends StatefulHookConsumerWidget {
+  const Spotube({Key? key}) : super(key: key);
 
-  MyApp({Key? key}) : super(key: key);
   @override
-  Widget build(BuildContext context, ref) {
-    var themeMode = ref.watch(themeProvider);
-    var player = ref.watch(audioPlayerProvider);
-    var youtube = ref.watch(youtubeProvider);
-    useEffect(() {
-      SharedPreferences.getInstance().then((localStorage) {
-        String? themeMode = localStorage.getString(LocalStorageKeys.themeMode);
-        var themeNotifier = ref.read(themeProvider.notifier);
+  SpotubeState createState() => SpotubeState();
 
-        switch (themeMode) {
-          case "light":
-            themeNotifier.state = ThemeMode.light;
-            break;
-          case "dark":
-            themeNotifier.state = ThemeMode.dark;
-            break;
-          default:
-            themeNotifier.state = ThemeMode.system;
+  /// ↓↓ ADDED
+  /// InheritedWidget style accessor to our State object.
+  static SpotubeState of(BuildContext context) =>
+      context.findAncestorStateOfType<SpotubeState>()!;
+}
+
+class SpotubeState extends ConsumerState<Spotube> with WidgetsBindingObserver {
+  final logger = getLogger(Spotube);
+  SharedPreferences? localStorage;
+
+  Size? prevSize;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then(((value) => localStorage = value));
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+      setState(() {
+        appPlatform = Theme.of(context).platform;
+        if (appPlatform == TargetPlatform.macOS) {
+          appPlatform = TargetPlatform.android;
         }
       });
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() async {
+    super.didChangeMetrics();
+    if (kIsMobile) return;
+    final size = await windowManager.getSize();
+    final windowSameDimension =
+        prevSize?.width == size.width && prevSize?.height == size.height;
+
+    if (localStorage == null || windowSameDimension) return;
+    final isMaximized = await windowManager.isMaximized();
+    localStorage!.setString(
+      LocalStorageKeys.windowSizeInfo,
+      jsonEncode({
+        'maximized': isMaximized,
+        'width': size.width,
+        'height': size.height,
+      }),
+    );
+    prevSize = size;
+  }
+
+  TargetPlatform appPlatform = TargetPlatform.android;
+
+  void changePlatform(TargetPlatform targetPlatform) {
+    appPlatform = targetPlatform;
+    if (appPlatform == TargetPlatform.macOS) {
+      appPlatform = TargetPlatform.android;
+    }
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final themeMode =
+        ref.watch(userPreferencesProvider.select((s) => s.themeMode));
+    final accentMaterialColor =
+        ref.watch(userPreferencesProvider.select((s) => s.accentColorScheme));
+
+    /// For enabling hot reload for audio player
+    useEffect(() {
       return () {
-        player.dispose();
+        audioPlayer.dispose();
         youtube.close();
       };
     }, []);
 
-    return MaterialApp.router(
-      routeInformationParser: _router.routeInformationParser,
-      routerDelegate: _router.routerDelegate,
+    platform = appPlatform;
+
+    return PlatformApp.router(
+      routeInformationParser: router.routeInformationParser,
+      routerDelegate: router.routerDelegate,
+      routeInformationProvider: router.routeInformationProvider,
       debugShowCheckedModeBanner: false,
       title: 'Spotube',
-      theme: ThemeData(
-        primaryColor: Colors.green,
-        primarySwatch: Colors.green,
-        buttonTheme: const ButtonThemeData(
-          buttonColor: Colors.green,
-        ),
-        shadowColor: Colors.grey[300],
-        backgroundColor: Colors.white,
-        textTheme: TextTheme(
-          bodyText1: TextStyle(color: Colors.grey[850]),
-          headline1: TextStyle(color: Colors.grey[850]),
-          headline2: TextStyle(color: Colors.grey[850]),
-          headline3: TextStyle(color: Colors.grey[850]),
-          headline4: TextStyle(color: Colors.grey[850]),
-          headline5: TextStyle(color: Colors.grey[850]),
-          headline6: TextStyle(color: Colors.grey[850]),
-        ),
-        listTileTheme: ListTileThemeData(
-          iconColor: Colors.grey[850],
-          horizontalTitleGap: 0,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          focusedBorder: OutlineInputBorder(
-            borderSide: BorderSide(
-              color: Colors.green[400]!,
-              width: 2.0,
-            ),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderSide: BorderSide(
-              color: Colors.grey[800]!,
-            ),
-          ),
-        ),
-        navigationRailTheme: NavigationRailThemeData(
-          backgroundColor: Colors.blueGrey[50],
-          unselectedIconTheme:
-              IconThemeData(color: Colors.grey[850], opacity: 1),
-          unselectedLabelTextStyle: TextStyle(
-            color: Colors.grey[850],
-          ),
-        ),
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: Colors.blueGrey[50],
-          height: 55,
-        ),
-        cardTheme: CardTheme(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          color: Colors.white,
-        ),
-      ),
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        primaryColor: Colors.green,
-        primarySwatch: Colors.green,
-        backgroundColor: Colors.blueGrey[900],
-        scaffoldBackgroundColor: Colors.blueGrey[900],
-        dialogBackgroundColor: Colors.blueGrey[800],
-        shadowColor: Colors.black26,
-        buttonTheme: const ButtonThemeData(
-          buttonColor: Colors.green,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          focusedBorder: OutlineInputBorder(
-            borderSide: BorderSide(
-              color: Colors.green[400]!,
-              width: 2.0,
-            ),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderSide: BorderSide(
-              color: Colors.grey[800]!,
-            ),
-          ),
-        ),
-        navigationRailTheme: NavigationRailThemeData(
-          backgroundColor: Colors.blueGrey[800],
-          unselectedIconTheme: const IconThemeData(opacity: 1),
-        ),
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: Colors.blueGrey[800],
-          height: 55,
-        ),
-        cardTheme: CardTheme(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          color: Colors.blueGrey[900],
-          elevation: 20,
-        ),
-        canvasColor: Colors.blueGrey[900],
-      ),
+      builder: (context, child) {
+        return DragToResizeArea(child: child!);
+      },
+      androidTheme: theme(accentMaterialColor, Brightness.light),
+      androidDarkTheme: theme(accentMaterialColor, Brightness.dark),
+      linuxTheme: linuxTheme,
+      linuxDarkTheme: linuxDarkTheme,
+      iosTheme: themeMode == ThemeMode.dark ? iosDarkTheme : iosTheme,
+      windowsTheme: windowsTheme,
+      windowsDarkTheme: windowsDarkTheme,
+      macosTheme: macosTheme,
+      macosDarkTheme: macosDarkTheme,
       themeMode: themeMode,
+      shortcuts: PlatformProperty.all({
+        ...WidgetsApp.defaultShortcuts.map((key, value) {
+          return MapEntry(
+            LogicalKeySet.fromSet(key.triggers?.toSet() ?? {}),
+            value,
+          );
+        }),
+        LogicalKeySet(LogicalKeyboardKey.space): PlayPauseIntent(ref),
+        LogicalKeySet(LogicalKeyboardKey.comma, LogicalKeyboardKey.control):
+            NavigationIntent(router, "/settings"),
+        LogicalKeySet(
+          LogicalKeyboardKey.keyB,
+          LogicalKeyboardKey.control,
+          LogicalKeyboardKey.shift,
+        ): HomeTabIntent(ref, tab: HomeTabs.browse),
+        LogicalKeySet(
+          LogicalKeyboardKey.keyS,
+          LogicalKeyboardKey.control,
+          LogicalKeyboardKey.shift,
+        ): HomeTabIntent(ref, tab: HomeTabs.search),
+        LogicalKeySet(
+          LogicalKeyboardKey.keyL,
+          LogicalKeyboardKey.control,
+          LogicalKeyboardKey.shift,
+        ): HomeTabIntent(ref, tab: HomeTabs.library),
+        LogicalKeySet(
+          LogicalKeyboardKey.keyY,
+          LogicalKeyboardKey.control,
+          LogicalKeyboardKey.shift,
+        ): HomeTabIntent(ref, tab: HomeTabs.lyrics),
+        LogicalKeySet(
+          LogicalKeyboardKey.keyW,
+          LogicalKeyboardKey.control,
+          LogicalKeyboardKey.shift,
+        ): CloseAppIntent(),
+      }),
+      actions: PlatformProperty.all({
+        ...WidgetsApp.defaultActions,
+        PlayPauseIntent: PlayPauseAction(),
+        NavigationIntent: NavigationAction(),
+        HomeTabIntent: HomeTabAction(),
+        CloseAppIntent: CloseAppAction(),
+      }),
     );
   }
 }
