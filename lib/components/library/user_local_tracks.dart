@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:catcher/catcher.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -12,23 +13,22 @@ import 'package:mime/mime.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:platform_ui/platform_ui.dart';
+
 import 'package:spotify/spotify.dart';
 import 'package:spotube/collections/spotube_icons.dart';
-import 'package:spotube/components/shared/compact_search.dart';
+import 'package:spotube/components/shared/expandable_search/expandable_search.dart';
 import 'package:spotube/components/shared/shimmers/shimmer_track_tile.dart';
 import 'package:spotube/components/shared/sort_tracks_dropdown.dart';
 import 'package:spotube/components/shared/track_table/track_tile.dart';
+import 'package:spotube/extensions/context.dart';
 import 'package:spotube/hooks/use_async_effect.dart';
 import 'package:spotube/models/local_track.dart';
-import 'package:spotube/provider/playlist_queue_provider.dart';
+import 'package:spotube/provider/proxy_playlist/proxy_playlist_provider.dart';
 import 'package:spotube/provider/user_preferences_provider.dart';
 import 'package:spotube/utils/platform.dart';
-import 'package:spotube/utils/primitive_utils.dart';
 import 'package:spotube/utils/service_utils.dart';
 import 'package:spotube/utils/type_conversion_utils.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge.dart' show FfiException;
-import 'package:tuple/tuple.dart';
 
 const supportedAudioTypes = [
   "audio/webm",
@@ -53,7 +53,8 @@ enum SortBy {
   descending,
   artist,
   album,
-  dateAdded,
+  newest,
+  oldest,
 }
 
 final localTracksProvider = FutureProvider<List<LocalTrack>>((ref) async {
@@ -94,12 +95,10 @@ final localTracksProvider = FutureProvider<List<LocalTrack>>((ref) async {
             }
 
             return {"metadata": metadata, "file": f, "art": imageFile.path};
-          } on FfiException catch (e) {
-            if (e.message != "NoTag: reader does not contain an id3 tag") {
-              rethrow;
-            }
-            return {};
           } catch (e, stack) {
+            if (e is FfiException) {
+              return {"file": f};
+            }
             Catcher.reportCheckedError(e, stack);
             return {};
           }
@@ -133,53 +132,66 @@ class UserLocalTracks extends HookConsumerWidget {
   const UserLocalTracks({Key? key}) : super(key: key);
 
   void playLocalTracks(
-    PlaylistQueueNotifier playback,
+    WidgetRef ref,
     List<LocalTrack> tracks, {
     LocalTrack? currentTrack,
   }) async {
+    final playlist = ref.read(ProxyPlaylistNotifier.provider);
+    final playback = ref.read(ProxyPlaylistNotifier.notifier);
     currentTrack ??= tracks.first;
-    final isPlaylistPlaying = playback.isPlayingPlaylist(tracks);
+    final isPlaylistPlaying = playlist.containsTracks(tracks);
     if (!isPlaylistPlaying) {
-      await playback.loadAndPlay(
+      await playback.load(
         tracks,
-        active: tracks.indexWhere((s) => s.id == currentTrack?.id),
+        initialIndex: tracks.indexWhere((s) => s.id == currentTrack?.id),
+        autoPlay: true,
       );
     } else if (isPlaylistPlaying &&
         currentTrack.id != null &&
-        currentTrack.id != playback.state?.activeTrack.id) {
-      await playback.playTrack(currentTrack);
+        currentTrack.id != playlist.activeTrack?.id) {
+      await playback.jumpToTrack(currentTrack);
     }
   }
 
   @override
   Widget build(BuildContext context, ref) {
     final sortBy = useState<SortBy>(SortBy.none);
-    final playlist = ref.watch(PlaylistQueueNotifier.provider);
-    final playlistNotifier = ref.watch(PlaylistQueueNotifier.notifier);
+    final playlist = ref.watch(ProxyPlaylistNotifier.provider);
     final trackSnapshot = ref.watch(localTracksProvider);
-    final isPlaylistPlaying = playlistNotifier.isPlayingPlaylist(
-      trackSnapshot.value ?? [],
-    );
+    final isPlaylistPlaying =
+        playlist.containsTracks(trackSnapshot.value ?? []);
     final isMounted = useIsMounted();
 
-    final searchText = useState<String>("");
+    final searchController = useTextEditingController();
+    useValueListenable(searchController);
+    final searchFocus = useFocusNode();
+    final isFiltering = useState(false);
 
     useAsyncEffect(
       () async {
         if (!kIsMobile) return;
-        if (!await Permission.storage.isGranted &&
-            !await Permission.storage.isLimited) {
+
+        final androidInfo = await DeviceInfoPlugin().androidInfo;
+
+        final hasNoStoragePerm = androidInfo.version.sdkInt < 33 &&
+            !await Permission.storage.isGranted &&
+            !await Permission.storage.isLimited;
+
+        final hasNoAudioPerm = androidInfo.version.sdkInt >= 33 &&
+            !await Permission.audio.isGranted &&
+            !await Permission.audio.isLimited;
+
+        if (hasNoStoragePerm) {
           await Permission.storage.request();
+          if (isMounted()) ref.refresh(localTracksProvider);
+        }
+        if (hasNoAudioPerm) {
+          await Permission.audio.request();
           if (isMounted()) ref.refresh(localTracksProvider);
         }
       },
       null,
       [],
-    );
-
-    var searchbar = CompactSearch(
-      onChanged: (value) => searchText.value = value,
-      placeholder: "Search local tracks...",
     );
 
     return Column(
@@ -189,22 +201,25 @@ class UserLocalTracks extends HookConsumerWidget {
           child: Row(
             children: [
               const SizedBox(width: 10),
-              PlatformFilledButton(
+              FilledButton(
                 onPressed: trackSnapshot.value != null
                     ? () {
                         if (trackSnapshot.value?.isNotEmpty == true) {
                           if (!isPlaylistPlaying) {
                             playLocalTracks(
-                                playlistNotifier, trackSnapshot.value!);
+                              ref,
+                              trackSnapshot.value!,
+                            );
                           } else {
-                            playlistNotifier.stop();
+                            // TODO: Remove stop capability
+                            // playlistNotifier.stop();
                           }
                         }
                       }
                     : null,
                 child: Row(
                   children: [
-                    const Text("Play"),
+                    Text(context.l10n.play),
                     Icon(
                       isPlaylistPlaying ? SpotubeIcons.stop : SpotubeIcons.play,
                     )
@@ -212,7 +227,10 @@ class UserLocalTracks extends HookConsumerWidget {
                 ),
               ),
               const Spacer(),
-              searchbar,
+              ExpandableSearchButton(
+                isFiltering: isFiltering,
+                searchFocus: searchFocus,
+              ),
               const SizedBox(width: 10),
               SortTracksDropdown(
                 value: sortBy.value,
@@ -221,7 +239,7 @@ class UserLocalTracks extends HookConsumerWidget {
                 },
               ),
               const SizedBox(width: 10),
-              PlatformFilledButton(
+              FilledButton(
                 child: const Icon(SpotubeIcons.refresh),
                 onPressed: () {
                   ref.refresh(localTracksProvider);
@@ -230,6 +248,11 @@ class UserLocalTracks extends HookConsumerWidget {
             ],
           ),
         ),
+        ExpandableSearchField(
+          searchController: searchController,
+          searchFocus: searchFocus,
+          isFiltering: isFiltering,
+        ),
         trackSnapshot.when(
           data: (tracks) {
             final sortedTracks = useMemoized(() {
@@ -237,26 +260,26 @@ class UserLocalTracks extends HookConsumerWidget {
             }, [sortBy.value, tracks]);
 
             final filteredTracks = useMemoized(() {
-              if (searchText.value.isEmpty) {
+              if (searchController.text.isEmpty) {
                 return sortedTracks;
               }
               return sortedTracks
-                  .map((e) => Tuple2(
+                  .map((e) => (
                         weightedRatio(
                           "${e.name} - ${TypeConversionUtils.artists_X_String<Artist>(e.artists ?? [])}",
-                          searchText.value,
+                          searchController.text,
                         ),
                         e,
                       ))
                   .toList()
                   .sorted(
-                    (a, b) => b.item1.compareTo(a.item1),
+                    (a, b) => b.$1.compareTo(a.$1),
                   )
-                  .where((e) => e.item1 > 50)
-                  .map((e) => e.item2)
+                  .where((e) => e.$1 > 50)
+                  .map((e) => e.$2)
                   .toList()
                   .toList();
-            }, [searchText.value, sortedTracks]);
+            }, [searchController.text, sortedTracks]);
 
             return Expanded(
               child: RefreshIndicator(
@@ -269,17 +292,12 @@ class UserLocalTracks extends HookConsumerWidget {
                   itemBuilder: (context, index) {
                     final track = filteredTracks[index];
                     return TrackTile(
-                      playlist,
-                      duration:
-                          "${track.duration?.inMinutes.remainder(60)}:${PrimitiveUtils.zeroPadNumStr(track.duration?.inSeconds.remainder(60) ?? 0)}",
-                      track: MapEntry(index, track),
-                      isActive: playlist?.activeTrack.id == track.id,
-                      isChecked: false,
-                      showCheck: false,
-                      isLocal: true,
-                      onTrackPlayButtonPressed: (currentTrack) {
-                        return playLocalTracks(
-                          playlistNotifier,
+                      index: index,
+                      track: track,
+                      userPlaylist: false,
+                      onTap: () {
+                        playLocalTracks(
+                          ref,
                           sortedTracks,
                           currentTrack: track,
                         );

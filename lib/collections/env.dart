@@ -1,17 +1,26 @@
-import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:envied/envied.dart';
 
+part 'env.g.dart';
+
+@Envied(obfuscate: true, requireEnvFile: true, path: ".env")
 abstract class Env {
-  static final String pocketbaseUrl =
-      dotenv.get('POCKETBASE_URL', fallback: 'http://127.0.0.1:8090');
-  static final String username = dotenv.get('USERNAME', fallback: 'root');
-  static final String password = dotenv.get('PASSWORD', fallback: '12345678');
+  @EnviedField(varName: 'SUPABASE_URL')
+  static final supabaseUrl = _Env.supabaseUrl;
 
-  static configure() async {
-    if (kReleaseMode) {
-      await dotenv.load(fileName: ".env");
-    } else {
-      dotenv.testLoad();
-    }
-  }
+  @EnviedField(varName: 'SUPABASE_API_KEY')
+  static final supabaseAnonKey = _Env.supabaseAnonKey;
+
+  @EnviedField(varName: 'SPOTIFY_SECRETS')
+  static final spotifySecrets = _Env.spotifySecrets.split(',').map((e) {
+    final secrets = e.trim().split(":").map((e) => e.trim());
+    return {
+      "clientId": secrets.first,
+      "clientSecret": secrets.last,
+    };
+  }).toList();
+
+  @EnviedField(varName: 'ENABLE_UPDATE_CHECK', defaultValue: "1")
+  static final _enableUpdateChecker = _Env._enableUpdateChecker;
+
+  static bool get enableUpdateChecker => _enableUpdateChecker == "1";
 }

@@ -9,13 +9,20 @@ import 'package:spotube/models/logger.dart';
 import 'package:http/http.dart' as http;
 import 'package:spotube/models/lyrics.dart';
 import 'package:spotube/models/spotube_track.dart';
-import 'package:spotube/models/generated_secrets.dart';
+
 import 'package:spotube/utils/primitive_utils.dart';
 import 'package:collection/collection.dart';
 import 'package:html/parser.dart' as parser;
 
 abstract class ServiceUtils {
   static final logger = getLogger("ServiceUtils");
+
+  static final _englishMatcherRegex = RegExp(
+    "^[a-zA-Z0-9\\s!\"#\$%&\\'()*+,-.\\/:;<=>?@\\[\\]^_`{|}~]*\$",
+  );
+  static bool onlyContainsEnglish(String text) {
+    return _englishMatcherRegex.hasMatch(text);
+  }
 
   static String clearArtistsOfTitle(String title, List<String> artists) {
     return title
@@ -77,6 +84,7 @@ abstract class ServiceUtils {
     return lyrics;
   }
 
+  @Deprecated("In favor spotify lyrics api, this isn't needed anymore")
   static Future<List?> searchSong(
     String title,
     List<String> artist, {
@@ -85,7 +93,7 @@ abstract class ServiceUtils {
     bool authHeader = false,
   }) async {
     if (apiKey == "" || apiKey == null) {
-      apiKey = PrimitiveUtils.getRandomElement(lyricsSecrets);
+      apiKey = PrimitiveUtils.getRandomElement(/* lyricsSecrets */ []);
     }
     const searchUrl = 'https://api.genius.com/search?q=';
     String song =
@@ -111,6 +119,7 @@ abstract class ServiceUtils {
     return results;
   }
 
+  @Deprecated("In favor spotify lyrics api, this isn't needed anymore")
   static Future<String?> getLyrics(
     String title,
     List<String> artists, {
@@ -158,8 +167,10 @@ abstract class ServiceUtils {
     return lyrics;
   }
 
+  @Deprecated("In favor spotify lyrics api, this isn't needed anymore")
   static const baseUri = "https://www.rentanadviser.com/subtitles";
 
+  @Deprecated("In favor spotify lyrics api, this isn't needed anymore")
   static Future<SubtitleSimple?> getTimedLyrics(SpotubeTrack track) async {
     final artistNames =
         track.artists?.map((artist) => artist.name!).toList() ?? [];
@@ -246,7 +257,34 @@ abstract class ServiceUtils {
   }
 
   static void navigate(BuildContext context, String location, {Object? extra}) {
-    GoRouter.of(context).push(location, extra: extra);
+    if (GoRouterState.of(context).matchedLocation == location) return;
+    GoRouter.of(context).go(location, extra: extra);
+  }
+
+  static void push(BuildContext context, String location, {Object? extra}) {
+    final router = GoRouter.of(context);
+    final routerState = GoRouterState.of(context);
+    final routerStack = router.routerDelegate.currentConfiguration.matches
+        .map((e) => e.matchedLocation);
+
+    if (routerState.matchedLocation == location ||
+        routerStack.contains(location)) return;
+    router.push(location, extra: extra);
+  }
+
+  static DateTime parseSpotifyAlbumDate(AlbumSimple? album) {
+    if (album == null || album.releaseDate == null) {
+      return DateTime.parse("1975-01-01");
+    }
+
+    switch (album.releaseDatePrecision ?? DatePrecision.year) {
+      case DatePrecision.day:
+        return DateTime.parse(album.releaseDate!);
+      case DatePrecision.month:
+        return DateTime.parse("${album.releaseDate}-01");
+      case DatePrecision.year:
+        return DateTime.parse("${album.releaseDate}-01-01");
+    }
   }
 
   static List<T> sortTracks<T extends Track>(List<T> tracks, SortBy sortBy) {
@@ -262,12 +300,14 @@ abstract class ServiceUtils {
                 0;
           case SortBy.ascending:
             return a.name?.compareTo(b.name ?? "") ?? 0;
-          case SortBy.dateAdded:
-            final aDate =
-                double.parse(a.album?.releaseDate?.split("-").first ?? "2069");
-            final bDate =
-                double.parse(b.album?.releaseDate?.split("-").first ?? "2069");
+          case SortBy.oldest:
+            final aDate = parseSpotifyAlbumDate(a.album);
+            final bDate = parseSpotifyAlbumDate(b.album);
             return aDate.compareTo(bDate);
+          case SortBy.newest:
+            final aDate = parseSpotifyAlbumDate(a.album);
+            final bDate = parseSpotifyAlbumDate(b.album);
+            return bDate.compareTo(aDate);
           case SortBy.descending:
             return b.name?.compareTo(a.name ?? "") ?? 0;
           default:

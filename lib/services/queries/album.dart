@@ -9,12 +9,20 @@ import 'package:spotube/provider/user_preferences_provider.dart';
 class AlbumQueries {
   const AlbumQueries();
 
-  Query<Iterable<AlbumSimple>, dynamic> ofMine(WidgetRef ref) {
-    return useSpotifyQuery<Iterable<AlbumSimple>, dynamic>(
+  InfiniteQuery<Page<AlbumSimple>, dynamic, int> ofMine(WidgetRef ref) {
+    return useSpotifyInfiniteQuery<Page<AlbumSimple>, dynamic, int>(
       "current-user-albums",
-      (spotify) {
-        return spotify.me.savedAlbums().all();
+      (page, spotify) {
+        return spotify.me.savedAlbums().getPage(
+              20,
+              page * 20,
+            );
       },
+      initialPage: 0,
+      nextPage: (lastPage, lastPageData) =>
+          (lastPageData.items?.length ?? 0) < 20 || lastPageData.isLast
+              ? null
+              : lastPage + 1,
       ref: ref,
     );
   }
@@ -42,7 +50,8 @@ class AlbumQueries {
     return useSpotifyQuery<bool, dynamic>(
       "is-saved-for-me/$album",
       (spotify) {
-        return spotify.me.isSavedAlbums([album]).then((value) => value.first);
+        return spotify.me
+            .containsSavedAlbums([album]).then((value) => value[album]);
       },
       ref: ref,
     );
@@ -58,7 +67,7 @@ class AlbumQueries {
         try {
           final albums = await spotify.browse
               .getNewReleases(country: market)
-              .getPage(5, pageParam);
+              .getPage(50, pageParam);
 
           return albums;
         } catch (e, stack) {

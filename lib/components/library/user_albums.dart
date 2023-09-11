@@ -3,18 +3,18 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:collection/collection.dart';
 import 'package:fuzzywuzzy/fuzzywuzzy.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:platform_ui/platform_ui.dart';
+import 'package:spotify/spotify.dart';
+
 import 'package:spotube/collections/spotube_icons.dart';
 import 'package:spotube/components/album/album_card.dart';
-import 'package:spotube/components/shared/playbutton_card.dart';
 import 'package:spotube/components/shared/shimmers/shimmer_playbutton_card.dart';
 import 'package:spotube/components/shared/fallbacks/anonymous_fallback.dart';
-import 'package:spotube/hooks/use_breakpoint_value.dart';
+import 'package:spotube/components/shared/waypoint.dart';
+import 'package:spotube/extensions/context.dart';
 import 'package:spotube/provider/authentication_provider.dart';
 import 'package:spotube/services/queries/queries.dart';
 
 import 'package:spotube/utils/type_conversion_utils.dart';
-import 'package:tuple/tuple.dart';
 
 class UserAlbums extends HookConsumerWidget {
   const UserAlbums({Key? key}) : super(key: key);
@@ -24,71 +24,86 @@ class UserAlbums extends HookConsumerWidget {
     final auth = ref.watch(AuthenticationNotifier.provider);
     final albumsQuery = useQueries.album.ofMine(ref);
 
-    final spacing = useBreakpointValue<double>(
-      sm: 0,
-      others: 20,
-    );
-    final viewType = MediaQuery.of(context).size.width < 480
-        ? PlaybuttonCardViewType.list
-        : PlaybuttonCardViewType.square;
+    final controller = useScrollController();
 
     final searchText = useState('');
 
+    final allAlbums = useMemoized(
+      () => albumsQuery.pages
+          .expand((element) => element.items ?? <AlbumSimple>[]),
+      [albumsQuery.pages],
+    );
+
     final albums = useMemoized(() {
       if (searchText.value.isEmpty) {
-        return albumsQuery.data?.toList() ?? [];
+        return allAlbums;
       }
-      return albumsQuery.data
-              ?.map((e) => Tuple2(
-                    weightedRatio(e.name!, searchText.value),
-                    e,
-                  ))
-              .sorted((a, b) => b.item1.compareTo(a.item1))
-              .where((e) => e.item1 > 50)
-              .map((e) => e.item2)
-              .toList() ??
-          [];
-    }, [albumsQuery.data, searchText.value]);
+      return allAlbums
+          .map((e) => (
+                weightedRatio(e.name!, searchText.value),
+                e,
+              ))
+          .sorted((a, b) => b.$1.compareTo(a.$1))
+          .where((e) => e.$1 > 50)
+          .map((e) => e.$2)
+          .toList();
+    }, [allAlbums, searchText.value]);
 
     if (auth == null) {
       return const AnonymousFallback();
     }
-    if (albumsQuery.isLoading || !albumsQuery.hasData) {
-      return const Center(child: ShimmerPlaybuttonCard(count: 7));
-    }
+
+    final theme = Theme.of(context);
 
     return RefreshIndicator(
       onRefresh: () async {
         await albumsQuery.refresh();
       },
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: Material(
-          type: MaterialType.transparency,
-          textStyle: PlatformTheme.of(context).textTheme!.body!,
-          color: PlatformTheme.of(context).scaffoldBackgroundColor,
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Column(
-              children: [
-                PlatformTextField(
+      child: SafeArea(
+        child: Scaffold(
+          appBar: PreferredSize(
+            preferredSize: const Size.fromHeight(50),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: ColoredBox(
+                color: theme.scaffoldBackgroundColor,
+                child: SearchBar(
                   onChanged: (value) => searchText.value = value,
-                  prefixIcon: SpotubeIcons.filter,
-                  placeholder: 'Filter Albums...',
+                  leading: const Icon(SpotubeIcons.filter),
+                  hintText: context.l10n.filter_artist,
                 ),
-                const SizedBox(height: 20),
-                Wrap(
-                  spacing: spacing, // gap between adjacent chips
-                  runSpacing: 20, // gap between lines
-                  alignment: WrapAlignment.center,
-                  children: albums
-                      .map((album) => AlbumCard(
-                            viewType: viewType,
-                            TypeConversionUtils.simpleAlbum_X_Album(album),
-                          ))
-                      .toList(),
-                ),
-              ],
+              ),
+            ),
+          ),
+          body: SizedBox.expand(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(8.0),
+              controller: controller,
+              child: Wrap(
+                runSpacing: 20,
+                alignment: WrapAlignment.center,
+                runAlignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (albums.isEmpty)
+                    Container(
+                      alignment: Alignment.topLeft,
+                      padding: const EdgeInsets.all(16.0),
+                      child: const ShimmerPlaybuttonCard(count: 4),
+                    ),
+                  for (final album in albums)
+                    AlbumCard(
+                      TypeConversionUtils.simpleAlbum_X_Album(album),
+                    ),
+                  if (albumsQuery.hasNextPage)
+                    Waypoint(
+                      controller: controller,
+                      isGrid: true,
+                      onTouchEdge: albumsQuery.fetchNext,
+                      child: const ShimmerPlaybuttonCard(count: 1),
+                    )
+                ],
+              ),
             ),
           ),
         ),

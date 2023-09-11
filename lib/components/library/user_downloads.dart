@@ -1,18 +1,22 @@
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:platform_ui/platform_ui.dart';
-import 'package:spotify/spotify.dart';
-import 'package:spotube/components/shared/image/universal_image.dart';
-import 'package:spotube/provider/downloader_provider.dart';
-import 'package:spotube/utils/type_conversion_utils.dart';
+
+import 'package:spotube/components/library/user_downloads/download_item.dart';
+import 'package:spotube/extensions/context.dart';
+import 'package:spotube/provider/download_manager_provider.dart';
 
 class UserDownloads extends HookConsumerWidget {
   const UserDownloads({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context, ref) {
-    final downloader = ref.watch(downloaderProvider);
+    final downloadManager = ref.watch(downloadManagerProvider);
+
+    final history = [
+      ...downloadManager.$history,
+      ...downloadManager.$backHistory,
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -24,59 +28,34 @@ class UserDownloads extends HookConsumerWidget {
             children: [
               Expanded(
                 child: AutoSizeText(
-                  "Currently downloading (${downloader.currentlyRunning})",
+                  context.l10n
+                      .currently_downloading(downloadManager.$downloadCount),
                   maxLines: 1,
-                  style: PlatformTextTheme.of(context).headline,
+                  style: Theme.of(context).textTheme.headlineMedium,
                 ),
               ),
               const SizedBox(width: 10),
-              PlatformFilledButton(
-                style: ButtonStyle(
-                  backgroundColor: MaterialStatePropertyAll(Colors.red[50]),
-                  foregroundColor: MaterialStatePropertyAll(Colors.red[400]),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.red[50],
+                  foregroundColor: Colors.red[400],
                 ),
-                onPressed: downloader.currentlyRunning > 0
-                    ? downloader.cancelAll
-                    : null,
-                isSecondary: true,
-                child: const PlatformText("Cancel All"),
+                onPressed: downloadManager.$downloadCount == 0
+                    ? null
+                    : downloadManager.cancelAll,
+                child: Text(context.l10n.cancel_all),
               ),
             ],
           ),
         ),
         Expanded(
-          child: ListView.builder(
-            itemCount: downloader.inQueue.length,
-            itemBuilder: (context, index) {
-              final track = downloader.inQueue.elementAt(index);
-              return PlatformListTile(
-                title: Text(track.name ?? ''),
-                leading: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 5),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: UniversalImage(
-                      height: 40,
-                      width: 40,
-                      path: TypeConversionUtils.image_X_UrlString(
-                        track.album?.images,
-                        placeholder: ImagePlaceholder.albumArt,
-                      ),
-                    ),
-                  ),
-                ),
-                trailing: const SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: PlatformCircularProgressIndicator(),
-                ),
-                subtitle: Text(
-                  TypeConversionUtils.artists_X_String(
-                    track.artists ?? <Artist>[],
-                  ),
-                ),
-              );
-            },
+          child: SafeArea(
+            child: ListView.builder(
+              itemCount: history.length,
+              itemBuilder: (context, index) {
+                return DownloadItem(track: history[index]);
+              },
+            ),
           ),
         ),
       ],

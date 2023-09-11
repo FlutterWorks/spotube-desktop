@@ -25,6 +25,7 @@ All types of contributions are encouraged and valued. See the [Table of Contents
       - [Before Submitting an Enhancement](#before-submitting-an-enhancement)
       - [How Do I Submit a Good Enhancement Suggestion?](#how-do-i-submit-a-good-enhancement-suggestion)
     - [Your First Code Contribution](#your-first-code-contribution)
+    - [Submit translations](#submit-translations)
 
 ## Code of Conduct
 
@@ -118,40 +119,48 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/KRTirt
 
 Do the following:
 
-- Download the latest Flutter SDK (>=2.15.1) & enable desktop support
+- Download the latest Flutter SDK (>=3.10.0) & enable desktop support
 - Install Development dependencies in linux
-  - `libgstreamer1.0-dev` & `libgstreamer-plugins-base1.0-dev` (for Debian/Ubuntu)
-  - `gstreamer`, `gst-libav`, `gst-plugins-base` & `gst-plugins-good` (for Arch/Manjaro)
-  - `gstreamer1-devel gstreamer1-plugins-base-tools gstreamer1-doc gstreamer1-plugins-base-devel gstreamer1-plugins-good gstreamer1-plugins-good-extras` (for Fedora)
-- Clone the Repo & Run `flutter pub get` in the Terminal
-- Create a `secrets.json` in root of the project. The structure should be similar to the following example:
-
-```jsoc name="secrets.json"
-{
-  "LYRICS_SECRET": [
-    "Bo3LQEMcL2xUAJ6yCfQowV6f8K78s9J9FLa67AsyWmvhkP9LWikkgcEyFrzvs7jsR",
-    "HiLHxLj8uv2VhBZfq9BQ9HVrWQk5Jc8aneMZX8RV4KjTmC387K692xrbNK35c8Qe4"
-  ],
-  "SPOTIFY_SECRET": [
-    {
-      "clientId": "9ed19daf-c7a2-4c28-91ac-2c5283ad86cf",
-      "clientSecret": "236d5822-820e-457e-b18c-10e258c9386b"
-    },
-    {
-      "clientId": "b4769027-e048-4485-8f0b-b8a336f2cd97",
-      "clientSecret": "41df6ea4-eba2-4d42-b7be-6f727555fccc"
-    }
-  ]
-}
-```
-
-> You can add more clientId/clientSecret/genius-access-token if you want. The credentials used in the example are dummy (fake). You've to use your own secrets
-
+  - Debian (>=12/Bookworm)/Ubuntu
+    ```bash
+    $ apt-get install mpv libmpv-dev libappindicator3-1 gir1.2-appindicator3-0.1 libappindicator3-dev libsecret-1-0 libjsoncpp25 libsecret-1-dev libjsoncpp-dev libnotify-bin libnotify-dev
+    ```
+    - Use `libjsoncpp1` instead of `libjsoncpp25` (for Ubuntu < 22.04)
+  - Arch/Manjaro
+    ```bash
+    yay -S mpv libappindicator-gtk3 libsecret jsoncpp libnotify
+    ```
+  - Fedora
+    ```bash
+    dnf install mpv mpv-devel libappindicator-gtk3 libappindicator-gtk3-devel libsecret libsecret-devel jsoncpp jsoncpp-devel libnotify libnotify-devel
+    ```
+- Clone the Repo
+- Create a `.env` in root of the project following the `.env.example` template
+- Now run the following to bootstrap the project
+  ```bash
+  flutter pub get && dart run build_runner build --delete-conflicting-outputs --enable-experiment=records,patterns
+  ```
 - Finally run these following commands in the root of the project to start the Spotube Locally
-
-```bash
-$ dart bin/create-secrets.dart --local
-$ flutter run -d <window|macos|linux|(<android-device-id>)>
-```
+  ```bash
+  flutter run -d <window|macos|linux|(<android-device-id>)>
+  ```
 
 Do debugging/testing/build etc then submit to us with PR against the development branch (master) & we'll review your code
+
+
+### Submit Translations
+
+Make sure you're familiar with [Flutter localization](https://docs.flutter.dev/ui/accessibility-and-localization/internationalization). Then, you can start translating the app by following these steps:
+
+- Do all the steps in [Your First Code Contribution](#your-first-code-contribution)
+- Make sure application starts in debug mode
+- Now, in `lib/l10n/app_<2-letter code of your language>.arb` (create if not exists) add necessary translations  
+  > (You can follow the `lib/l10n/app_en.arb` for reference)
+- If you're adding missing translations, you can check the `/untranslated_messages.json` file to see which messages are missing in your native locale
+- If you added entirely new translations:
+  - Add `const Locale('<2-letter language code>', '<2-letter ISO country code>')` in `lib/l10n/l10n.dart`'s `static final all = [...]` variable
+  - Uncomment the Map entry of your locale from `lib/collections/language_codes.dart`'s `static final Map isoLangs = {` variable
+- Now restart (hot restart if running already) the app in debug mode & go to "Settings" > "Language" & see if your locale shows up
+- If it does, select it & see if the app is translated properly
+- Now git commit the changes & push
+- Finally, submit a PR against the development branch (dev) & we'll review your code

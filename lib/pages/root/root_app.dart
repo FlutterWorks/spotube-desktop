@@ -1,17 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:platform_ui/platform_ui.dart';
+import 'package:internet_connection_checker/internet_connection_checker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:spotube/collections/spotube_icons.dart';
 import 'package:spotube/components/shared/dialogs/replace_downloaded_dialog.dart';
 import 'package:spotube/components/root/bottom_player.dart';
 import 'package:spotube/components/root/sidebar.dart';
 import 'package:spotube/components/root/spotube_navigation_bar.dart';
-import 'package:spotube/components/shared/page_window_title_bar.dart';
+import 'package:spotube/extensions/context.dart';
 import 'package:spotube/hooks/use_update_checker.dart';
-import 'package:spotube/provider/authentication_provider.dart';
-import 'package:spotube/provider/downloader_provider.dart';
+import 'package:spotube/provider/download_manager_provider.dart';
+import 'package:spotube/utils/persisted_state_notifier.dart';
 
 const rootPaths = {
   0: "/",
@@ -31,19 +35,97 @@ class RootApp extends HookConsumerWidget {
   Widget build(BuildContext context, ref) {
     final index = useState(0);
     final isMounted = useIsMounted();
-    final auth = ref.watch(AuthenticationNotifier.provider);
+    final showingDialogCompleter = useRef(Completer()..complete());
+    final downloader = ref.watch(downloadManagerProvider);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final theme = Theme.of(context);
 
-    final downloader = ref.watch(downloaderProvider);
+    useEffect(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final sharedPreferences = await SharedPreferences.getInstance();
+
+        if (sharedPreferences.getBool(kIsUsingEncryption) == false &&
+            context.mounted) {
+          await PersistedStateNotifier.showNoEncryptionDialog(context);
+        }
+      });
+
+      final subscription =
+          InternetConnectionChecker().onStatusChange.listen((status) {
+        switch (status) {
+          case InternetConnectionStatus.connected:
+            scaffoldMessenger.showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    Icon(
+                      SpotubeIcons.wifi,
+                      color: theme.colorScheme.onPrimary,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(context.l10n.connection_restored),
+                  ],
+                ),
+                backgroundColor: theme.colorScheme.primary,
+                showCloseIcon: true,
+                width: 350,
+              ),
+            );
+          case InternetConnectionStatus.disconnected:
+            scaffoldMessenger.showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    Icon(
+                      SpotubeIcons.noWifi,
+                      color: theme.colorScheme.onError,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(context.l10n.you_are_offline),
+                  ],
+                ),
+                backgroundColor: theme.colorScheme.error,
+                showCloseIcon: true,
+                width: 300,
+              ),
+            );
+        }
+      });
+
+      return () {
+        subscription.cancel();
+      };
+    }, []);
+
     useEffect(() {
       downloader.onFileExists = (track) async {
         if (!isMounted()) return false;
-        return await showPlatformAlertDialog<bool>(
-              context,
-              builder: (context) => ReplaceDownloadedDialog(
-                track: track,
-              ),
-            ) ??
-            false;
+
+        if (!showingDialogCompleter.value.isCompleted) {
+          await showingDialogCompleter.value.future;
+        }
+
+        final replaceAll = ref.read(replaceDownloadedFileState);
+
+        if (replaceAll != null) return replaceAll;
+
+        showingDialogCompleter.value = Completer();
+
+        if (context.mounted) {
+          final result = await showDialog<bool>(
+                context: context,
+                builder: (context) => ReplaceDownloadedDialog(
+                  track: track,
+                ),
+              ) ??
+              false;
+
+          showingDialogCompleter.value.complete();
+          return result;
+        }
+
+        // it'll never reach here as root_app is always mounted
+        return false;
       };
       return null;
     }, [downloader]);
@@ -51,7 +133,7 @@ class RootApp extends HookConsumerWidget {
     // checks for latest version of the application
     useUpdateChecker(ref);
 
-    final backgroundColor = PlatformTheme.of(context).scaffoldBackgroundColor!;
+    final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
 
     useEffect(() {
       SystemChrome.setSystemUIOverlayStyle(
@@ -65,10 +147,7 @@ class RootApp extends HookConsumerWidget {
       return null;
     }, [backgroundColor]);
 
-    return PlatformScaffold(
-      appBar: platform == TargetPlatform.windows
-          ? PageWindowTitleBar(hideWhenWindows: false) as PreferredSizeWidget?
-          : null,
+    return Scaffold(
       body: Sidebar(
         selectedIndex: index.value,
         onSelectedIndexChanged: (i) {

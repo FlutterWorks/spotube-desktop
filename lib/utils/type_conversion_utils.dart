@@ -3,15 +3,13 @@
 import 'dart:io';
 
 import 'package:flutter/widgets.dart' hide Image;
-import 'package:metadata_god/metadata_god.dart' hide Image;
+import 'package:metadata_god/metadata_god.dart';
 import 'package:path/path.dart';
 import 'package:spotube/collections/assets.gen.dart';
 import 'package:spotube/components/shared/links/anchor_button.dart';
 import 'package:spotify/spotify.dart';
-import 'package:spotube/models/spotube_track.dart';
 import 'package:spotube/utils/primitive_utils.dart';
 import 'package:spotube/utils/service_utils.dart';
-import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 enum ImagePlaceholder {
   albumArt,
@@ -66,7 +64,7 @@ abstract class TypeConversionUtils {
                   if (onRouteChange != null) {
                     onRouteChange("/artist/${artist.value.id}");
                   } else {
-                    ServiceUtils.navigate(
+                    ServiceUtils.push(
                       context,
                       "/artist/${artist.value.id}",
                     );
@@ -121,33 +119,12 @@ abstract class TypeConversionUtils {
     return track;
   }
 
-  static SpotubeTrack localTrack_X_Track(
+  static Track localTrack_X_Track(
     File file, {
     Metadata? metadata,
     String? art,
   }) {
-    final track = SpotubeTrack(
-      Video(
-        VideoId("dQw4w9WgXcQ"),
-        basenameWithoutExtension(file.path),
-        metadata?.artist ?? "",
-        ChannelId(
-          "https://www.youtube.com/channel/UCuAXFkgsw1L7xaCfnd5JJOw",
-        ),
-        DateTime.now(),
-        "",
-        DateTime.now(),
-        "",
-        Duration(milliseconds: metadata?.durationMs?.toInt() ?? 0),
-        ThumbnailSet(metadata?.title ?? ""),
-        [],
-        const Engagement(0, 0, 0),
-        false,
-      ),
-      file.path,
-      [],
-      [],
-    );
+    final track = Track();
     track.album = Album()
       ..name = metadata?.album ?? "Spotube"
       ..images = [if (art != null) Image()..url = art]
@@ -170,7 +147,7 @@ abstract class TypeConversionUtils {
     track.name = metadata?.title ?? basenameWithoutExtension(file.path);
     track.type = "track";
     track.uri = file.path;
-    track.durationMs = metadata?.durationMs?.toInt();
+    track.durationMs = (metadata?.durationMs?.toInt() ?? 0) * 1000;
 
     return track;
   }

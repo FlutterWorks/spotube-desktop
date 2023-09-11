@@ -5,11 +5,9 @@
 
 // coverage:ignore-file
 // ignore_for_file: type=lint
-// ignore_for_file: directives_ordering,unnecessary_import,implicit_dynamic_list_literal
+// ignore_for_file: directives_ordering,unnecessary_import,implicit_dynamic_list_literal,deprecated_member_use
 
 import 'package:flutter/widgets.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:flutter/services.dart';
 
 class $AssetsTutorialGen {
   const $AssetsTutorialGen();
@@ -32,17 +30,22 @@ class Assets {
 
   static const AssetGenImage albumPlaceholder =
       AssetGenImage('assets/album-placeholder.png');
+  static const AssetGenImage bengaliPatternsBg =
+      AssetGenImage('assets/bengali-patterns-bg.jpg');
+  static const AssetGenImage branding = AssetGenImage('assets/branding.png');
   static const AssetGenImage emptyBox = AssetGenImage('assets/empty_box.png');
   static const AssetGenImage placeholder =
       AssetGenImage('assets/placeholder.png');
   static const AssetGenImage spotubeLogoForeground =
       AssetGenImage('assets/spotube-logo-foreground.jpg');
+  static const String spotubeLogoIco = 'assets/spotube-logo.ico';
   static const AssetGenImage spotubeLogoPng =
       AssetGenImage('assets/spotube-logo.png');
-  static const SvgGenImage spotubeLogoSvg =
-      SvgGenImage('assets/spotube-logo.svg');
+  static const String spotubeLogoSvg = 'assets/spotube-logo.svg';
+  static const AssetGenImage spotubeLogoAndroid12 =
+      AssetGenImage('assets/spotube-logo_android12.png');
   static const AssetGenImage spotubeScreenshot =
-      AssetGenImage('assets/spotube-screenshot.jpg');
+      AssetGenImage('assets/spotube-screenshot.png');
   static const AssetGenImage spotubeBanner =
       AssetGenImage('assets/spotube_banner.png');
   static const AssetGenImage success = AssetGenImage('assets/success.png');
@@ -53,11 +56,15 @@ class Assets {
   /// List of all assets
   List<dynamic> get values => [
         albumPlaceholder,
+        bengaliPatternsBg,
+        branding,
         emptyBox,
         placeholder,
         spotubeLogoForeground,
+        spotubeLogoIco,
         spotubeLogoPng,
         spotubeLogoSvg,
+        spotubeLogoAndroid12,
         spotubeScreenshot,
         spotubeBanner,
         success,
@@ -124,57 +131,6 @@ class AssetGenImage {
   }
 
   ImageProvider provider() => AssetImage(_assetName);
-
-  String get path => _assetName;
-
-  String get keyName => _assetName;
-}
-
-class SvgGenImage {
-  const SvgGenImage(this._assetName);
-
-  final String _assetName;
-
-  SvgPicture svg({
-    Key? key,
-    bool matchTextDirection = false,
-    AssetBundle? bundle,
-    String? package,
-    double? width,
-    double? height,
-    BoxFit fit = BoxFit.contain,
-    AlignmentGeometry alignment = Alignment.center,
-    bool allowDrawingOutsideViewBox = false,
-    WidgetBuilder? placeholderBuilder,
-    Color? color,
-    BlendMode colorBlendMode = BlendMode.srcIn,
-    String? semanticsLabel,
-    bool excludeFromSemantics = false,
-    Clip clipBehavior = Clip.hardEdge,
-    bool cacheColorFilter = false,
-    SvgTheme? theme,
-  }) {
-    return SvgPicture.asset(
-      _assetName,
-      key: key,
-      matchTextDirection: matchTextDirection,
-      bundle: bundle,
-      package: package,
-      width: width,
-      height: height,
-      fit: fit,
-      alignment: alignment,
-      allowDrawingOutsideViewBox: allowDrawingOutsideViewBox,
-      placeholderBuilder: placeholderBuilder,
-      color: color,
-      colorBlendMode: colorBlendMode,
-      semanticsLabel: semanticsLabel,
-      excludeFromSemantics: excludeFromSemantics,
-      clipBehavior: clipBehavior,
-      cacheColorFilter: cacheColorFilter,
-      theme: theme,
-    );
-  }
 
   String get path => _assetName;
 

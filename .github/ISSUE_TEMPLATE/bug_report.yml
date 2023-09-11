@@ -46,16 +46,17 @@ body:
     attributes:
       label: Spotube version
       description: In which version of Spotube did you encounter this bug?
-      placeholder: (e.g.) v2.7.0
+      placeholder: (e.g.) v3.0.0
   - type: dropdown
     attributes:
       label: Installation source
       description: Where did you install Spotube from?
       multiple: true
       options:
-        - "Website (spotube.netlify.app)"
+        - "Website (spotube.netlify.app) or (spotube.krtirtho.dev)"
         - "GitHub Releases (Binary)"
         - "GitHub Actions (Nightly Binary)"
+        - "Play Store (Android)"
         - "F-Droid (Android)"
         - "Arch User Repository (AUR)"
         - "Flathub (Flatpak)"
