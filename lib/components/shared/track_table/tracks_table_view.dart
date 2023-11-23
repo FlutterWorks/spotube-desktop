@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -27,7 +29,7 @@ final trackCollectionSortState =
     StateProvider.family<SortBy, String>((ref, _) => SortBy.none);
 
 class TracksTableView extends HookConsumerWidget {
-  final void Function(Track currentTrack)? onTrackPlayButtonPressed;
+  final Future<void> Function(Track currentTrack)? onTrackPlayButtonPressed;
   final List<Track> tracks;
   final bool userPlaylist;
   final String? playlistId;
@@ -58,8 +60,7 @@ class TracksTableView extends HookConsumerWidget {
     final downloader = ref.watch(downloadManagerProvider.notifier);
     final apiType =
         ref.watch(userPreferencesProvider.select((s) => s.youtubeApiType));
-    final tableHeadStyle =
-        const TextStyle(fontWeight: FontWeight.bold, fontSize: 16);
+    const tableHeadStyle = TextStyle(fontWeight: FontWeight.bold, fontSize: 16);
 
     final selected = useState<List<String>>([]);
     final showCheck = useState<bool>(false);
@@ -69,6 +70,8 @@ class TracksTableView extends HookConsumerWidget {
 
     final searchController = useTextEditingController();
     final searchFocus = useFocusNode();
+
+    final controller = useScrollController();
 
     // this will trigger update on each change in searchController
     useValueListenable(searchController);
@@ -209,14 +212,16 @@ class TracksTableView extends HookConsumerWidget {
                           }
                         case "add-to-playlist":
                           {
-                            await showDialog(
-                              context: context,
-                              builder: (context) {
-                                return PlaylistAddTrackDialog(
-                                  tracks: selectedTracks.toList(),
-                                );
-                              },
-                            );
+                            if (context.mounted) {
+                              await showDialog(
+                                context: context,
+                                builder: (context) {
+                                  return PlaylistAddTrackDialog(
+                                    tracks: selectedTracks.toList(),
+                                  );
+                                },
+                              );
+                            }
                             break;
                           }
                         case "play-next":
@@ -297,7 +302,7 @@ class TracksTableView extends HookConsumerWidget {
                 selected: selected.value.contains(track.id),
                 userPlaylist: userPlaylist,
                 playlistId: playlistId,
-                onTap: () {
+                onTap: () async {
                   if (showCheck.value) {
                     final alreadyChecked = selected.value.contains(track.id);
                     if (alreadyChecked) {
@@ -314,9 +319,8 @@ class TracksTableView extends HookConsumerWidget {
                         ),
                       ),
                     );
-                    if (!isBlackListed) {
-                      onTrackPlayButtonPressed?.call(track);
-                    }
+                    if (isBlackListed) return;
+                    await onTrackPlayButtonPressed?.call(track);
                   }
                 },
                 onLongPress: () {
@@ -348,11 +352,16 @@ class TracksTableView extends HookConsumerWidget {
     if (isSliver) {
       return SliverSafeArea(
         top: false,
-        sliver: SliverList(delegate: SliverChildListDelegate(children)),
+        sliver: SliverList(
+          delegate: SliverChildListDelegate(children),
+        ),
       );
     }
     return SafeArea(
-      child: ListView(children: children),
+      child: ListView(
+        controller: controller,
+        children: children,
+      ),
     );
   }
 }

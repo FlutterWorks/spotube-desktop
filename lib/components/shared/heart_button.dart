@@ -7,6 +7,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:spotify/spotify.dart';
 import 'package:spotube/extensions/context.dart';
 import 'package:spotube/provider/authentication_provider.dart';
+import 'package:spotube/provider/scrobbler_provider.dart';
 import 'package:spotube/services/mutations/mutations.dart';
 import 'package:spotube/services/queries/queries.dart';
 
@@ -29,7 +30,7 @@ class HeartButton extends HookConsumerWidget {
   Widget build(BuildContext context, ref) {
     final auth = ref.watch(AuthenticationNotifier.provider);
 
-    if (auth == null) return Container();
+    if (auth == null) return const SizedBox.shrink();
 
     return IconButton(
       tooltip: tooltip,
@@ -57,47 +58,73 @@ class HeartButton extends HookConsumerWidget {
   }
 }
 
-({
+typedef UseTrackToggleLike = ({
   bool isLiked,
   Mutation<bool, dynamic, bool> toggleTrackLike,
   Query<User?, dynamic> me,
-}) useTrackToggleLike(Track track, WidgetRef ref) {
+});
+
+UseTrackToggleLike useTrackToggleLike(Track track, WidgetRef ref) {
   final me = useQueries.user.me(ref);
 
-  final savedTracks =
-      useQueries.playlist.tracksOfQuery(ref, "user-liked-tracks");
+  final savedTracks = useQueries.playlist.likedTracksQuery(ref);
 
-  final isLiked =
-      savedTracks.data?.any((element) => element.id == track.id) ?? false;
+  final isLiked = useMemoized(
+    () => savedTracks.data?.any((element) => element.id == track.id) ?? false,
+    [savedTracks.data, track.id],
+  );
 
   final mounted = useIsMounted();
+
+  final scrobblerNotifier = ref.read(scrobblerProvider.notifier);
 
   final toggleTrackLike = useMutations.track.toggleFavorite(
     ref,
     track.id!,
     onMutate: (isLiked) {
-      savedTracks.setData(
-        [
-          if (isLiked == true)
-            ...?savedTracks.data?.where((element) => element.id != track.id)
-          else
-            ...?savedTracks.data?..add(track)
-        ],
-      );
+      if (isLiked) {
+        savedTracks.setData(
+          savedTracks.data
+                  ?.where((element) => element.id != track.id)
+                  .toList() ??
+              [],
+        );
+      } else {
+        savedTracks.setData(
+          [
+            ...?savedTracks.data,
+            track,
+          ],
+        );
+      }
       return isLiked;
     },
-    onData: (data, recoveryData) async {
+    onData: (isLiked, recoveryData) async {
       await savedTracks.refresh();
+      if (isLiked) {
+        await scrobblerNotifier.love(track);
+      } else {
+        await scrobblerNotifier.unlove(track);
+      }
     },
     onError: (payload, isLiked) {
       if (!mounted()) return;
 
-      savedTracks.setData([
-        if (isLiked != true)
-          ...?savedTracks.data?.where((element) => element.id != track.id)
-        else
-          ...?savedTracks.data?..add(track),
-      ]);
+      if (isLiked != true) {
+        savedTracks.setData(
+          savedTracks.data
+                  ?.where((element) => element.id != track.id)
+                  .toList() ??
+              [],
+        );
+      } else {
+        savedTracks.setData(
+          [
+            ...?savedTracks.data,
+            track,
+          ],
+        );
+      }
     },
   );
 
@@ -113,21 +140,21 @@ class TrackHeartButton extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, ref) {
-    final savedTracks =
-        useQueries.playlist.tracksOfQuery(ref, "user-liked-tracks");
-    final toggler = useTrackToggleLike(track, ref);
-    if (toggler.me.isLoading || !toggler.me.hasData) {
+    final savedTracks = useQueries.playlist.likedTracksQuery(ref);
+    final (:me, :isLiked, :toggleTrackLike) = useTrackToggleLike(track, ref);
+
+    if (me.isLoading || !me.hasData) {
       return const CircularProgressIndicator();
     }
 
     return HeartButton(
-      tooltip: toggler.isLiked
+      tooltip: isLiked
           ? context.l10n.remove_from_favorites
           : context.l10n.save_as_favorite,
-      isLiked: toggler.isLiked,
+      isLiked: isLiked,
       onPressed: savedTracks.hasData
           ? () {
-              toggler.toggleTrackLike.mutate(toggler.isLiked);
+              toggleTrackLike.mutate(isLiked);
             }
           : null,
     );
@@ -136,10 +163,14 @@ class TrackHeartButton extends HookConsumerWidget {
 
 class PlaylistHeartButton extends HookConsumerWidget {
   final PlaylistSimple playlist;
+  final IconData? icon;
+  final ValueChanged<bool>? onData;
 
   const PlaylistHeartButton({
     required this.playlist,
     Key? key,
+    this.icon,
+    this.onData,
   }) : super(key: key);
 
   @override
@@ -158,6 +189,7 @@ class PlaylistHeartButton extends HookConsumerWidget {
       refreshQueries: [
         isLikedQuery.key,
       ],
+      onData: onData,
     );
 
     if (me.isLoading || !me.hasData) {
@@ -170,6 +202,7 @@ class PlaylistHeartButton extends HookConsumerWidget {
           ? context.l10n.remove_from_favorites
           : context.l10n.save_as_favorite,
       color: Colors.white,
+      icon: icon,
       onPressed: isLikedQuery.hasData
           ? () {
               togglePlaylistLike.mutate(isLikedQuery.data!);

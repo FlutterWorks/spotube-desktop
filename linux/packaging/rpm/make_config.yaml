@@ -12,6 +12,7 @@ requires:
   - jsoncpp
   - libsecret
   - libnotify
+  - xdg-user-dirs
 
 display_name: Spotube
 
@@ -25,6 +26,5 @@ keywords:
 generic_name: Music Streaming Application
 categories:
   - Music
-
 
 startup_notify: true

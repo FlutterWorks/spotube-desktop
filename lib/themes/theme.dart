@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
-ThemeData theme(Color seed, Brightness brightness) {
+ThemeData theme(Color seed, Brightness brightness, bool isAmoled) {
   final scheme = ColorScheme.fromSeed(
     seedColor: seed,
     shadow: Colors.black12,
+    background: isAmoled ? Colors.black : null,
+    surface: isAmoled ? Colors.black : null,
     brightness: brightness,
   );
   return ThemeData(
@@ -51,6 +53,7 @@ ThemeData theme(Color seed, Brightness brightness) {
     sliderTheme: SliderThemeData(overlayShape: SliderComponentShape.noOverlay),
     searchBarTheme: SearchBarThemeData(
       constraints: const BoxConstraints(maxWidth: double.infinity),
+      padding: const MaterialStatePropertyAll(EdgeInsets.all(8)),
       backgroundColor: MaterialStatePropertyAll(
         Color.lerp(
           scheme.surfaceVariant,
@@ -64,6 +67,9 @@ ThemeData theme(Color seed, Brightness brightness) {
           borderRadius: BorderRadius.circular(10),
         ),
       ),
+    ),
+    scrollbarTheme: const ScrollbarThemeData(
+      thickness: MaterialStatePropertyAll(14),
     ),
   );
 }

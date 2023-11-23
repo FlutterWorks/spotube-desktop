@@ -54,5 +54,11 @@
 		<true/>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>This app require access to the photo library</string>
+		<key>NSCameraUsageDescription</key>
+		<string>This app require access to the device camera</string>
+		<key>NSMicrophoneUsageDescription</key>
+		<string>This app does not require access to the device microphone</string>
 	</dict>
 </plist>

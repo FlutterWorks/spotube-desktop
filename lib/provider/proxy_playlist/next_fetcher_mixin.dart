@@ -1,14 +1,14 @@
 import 'package:collection/collection.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotify/spotify.dart';
 import 'package:spotube/models/local_track.dart';
-import 'package:spotube/models/matched_track.dart';
+import 'package:spotube/models/logger.dart';
 import 'package:spotube/models/spotube_track.dart';
 import 'package:spotube/provider/proxy_playlist/proxy_playlist.dart';
 import 'package:spotube/provider/user_preferences_provider.dart';
-import 'package:spotube/services/supabase.dart';
 import 'package:spotube/services/youtube/youtube.dart';
+
+final logger = getLogger("NextFetcherMixin");
 
 mixin NextFetcher on StateNotifier<ProxyPlaylist> {
   Future<List<SpotubeTrack>> fetchTracks(
@@ -30,6 +30,7 @@ mixin NextFetcher on StateNotifier<ProxyPlaylist> {
         final future = SpotubeTrack.fetchFromTrack(
           track,
           youtube,
+          preferences.streamMusicCodec,
         );
         if (i == 0) {
           return await future;
@@ -107,24 +108,5 @@ mixin NextFetcher on StateNotifier<ProxyPlaylist> {
         })
         .whereNotNull()
         .toList();
-  }
-
-  /// This method must be called after any playback operation as
-  /// it can increase the latency
-  Future<void> storeTrack(Track track, SpotubeTrack spotubeTrack) async {
-    try {
-      if (track is! SpotubeTrack) {
-        await supabase.insertTrack(
-          MatchedTrack(
-            youtubeId: spotubeTrack.ytTrack.id,
-            spotifyId: spotubeTrack.id!,
-            searchMode: spotubeTrack.ytTrack.searchMode,
-          ),
-        );
-      }
-    } catch (e, stackTrace) {
-      debugPrint(e.toString());
-      debugPrintStack(stackTrace: stackTrace);
-    }
   }
 }

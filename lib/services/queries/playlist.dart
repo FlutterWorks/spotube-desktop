@@ -1,4 +1,4 @@
-import 'package:catcher/catcher.dart';
+import 'package:catcher_2/catcher_2.dart';
 import 'package:fl_query/fl_query.dart';
 import 'package:fl_query_hooks/fl_query_hooks.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -119,8 +119,9 @@ class PlaylistQueries {
     return useSpotifyQuery<bool, dynamic>(
       "playlist-is-followed/$playlistId/$userId",
       (spotify) async {
-        final result = await spotify.playlists.followedBy(playlistId, [userId]);
-        return result.first;
+        final result =
+            await spotify.playlists.followedByUsers(playlistId, [userId]);
+        return result[userId] ?? false;
       },
       ref: ref,
     );
@@ -142,14 +143,49 @@ class PlaylistQueries {
     );
   }
 
-  Future<List<Track>> tracksOf(String playlistId, SpotifyApi spotify) {
-    if (playlistId == "user-liked-tracks") {
-      return spotify.tracks.me.saved.all().then(
-            (tracks) => tracks.map((e) => e.track!).toList(),
-          );
-    }
+  Future<List<Track>> likedTracks(
+    SpotifyApi spotify,
+    WidgetRef ref,
+  ) async {
+    final tracks = await spotify.tracks.me.saved.all();
+
+    return tracks.map((e) => e.track!).toList();
+  }
+
+  Query<List<Track>, dynamic> likedTracksQuery(WidgetRef ref) {
+    final query = useCallback((spotify) => likedTracks(spotify, ref), []);
+    final context = useContext();
+
+    return useSpotifyQuery<List<Track>, dynamic>(
+      "user-liked-tracks",
+      query,
+      jsonConfig: JsonConfig(
+        toJson: (tracks) => <String, dynamic>{
+          'tracks': tracks.map((e) => e.toJson()).toList(),
+        },
+        fromJson: (json) => (json['tracks'] as List)
+            .map(
+              (e) => Track.fromJson((e as Map).castKeyDeep<String>()),
+            )
+            .toList(),
+      ),
+      refreshConfig: RefreshConfig.withDefaults(
+        context,
+        // will never make it stale
+        staleDuration: const Duration(days: 60),
+      ),
+      ref: ref,
+    );
+  }
+
+  Future<List<Track>> tracksOf(
+    String playlistId,
+    SpotifyApi spotify,
+    WidgetRef ref,
+  ) async {
+    if (playlistId == "user-liked-tracks") return <Track>[];
     return spotify.playlists.getTracksByPlaylistId(playlistId).all().then(
-          (value) => value.toList(),
+          (value) => value.where((track) => track.id != null).toList(),
         );
   }
 
@@ -159,19 +195,17 @@ class PlaylistQueries {
   ) {
     return useSpotifyQuery<List<Track>, dynamic>(
       "playlist-tracks/$playlistId",
-      (spotify) => tracksOf(playlistId, spotify),
-      jsonConfig: playlistId == "user-liked-tracks"
-          ? JsonConfig(
-              toJson: (tracks) => <String, dynamic>{
-                'tracks': tracks.map((e) => e.toJson()).toList()
-              },
-              fromJson: (json) => (json['tracks'] as List)
-                  .map((e) => Track.fromJson(
-                        (e as Map).castKeyDeep<String>(),
-                      ))
-                  .toList(),
-            )
-          : null,
+      (spotify) => tracksOf(playlistId, spotify, ref),
+      ref: ref,
+    );
+  }
+
+  Query<Playlist, dynamic> byId(WidgetRef ref, String id) {
+    return useSpotifyQuery<Playlist, dynamic>(
+      "playlist/$id",
+      (spotify) async {
+        return await spotify.playlists.get(id);
+      },
       ref: ref,
     );
   }
@@ -187,7 +221,7 @@ class PlaylistQueries {
               await spotify.playlists.featured.getPage(5, pageParam);
           return playlists;
         } catch (e, stack) {
-          Catcher.reportCheckedError(e, stack);
+          Catcher2.reportCheckedError(e, stack);
           rethrow;
         }
       },
@@ -207,7 +241,7 @@ class PlaylistQueries {
     ({List<String> tracks, List<String> artists, List<String> genres})? seeds,
     RecommendationParameters? parameters,
     int limit = 20,
-    String? market,
+    Market? market,
   }) {
     final marketOfPreference = ref.watch(
       userPreferencesProvider.select((s) => s.recommendationMarket),
