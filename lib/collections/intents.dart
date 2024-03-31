@@ -1,10 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_desktop_tools/flutter_desktop_tools.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:spotube/components/player/player_controls.dart';
 import 'package:spotube/collections/routes.dart';
+import 'package:spotube/components/player/player_controls.dart';
 import 'package:spotube/models/logger.dart';
 import 'package:spotube/provider/proxy_playlist/proxy_playlist_provider.dart';
 import 'package:spotube/services/audio_player/audio_player.dart';
@@ -63,6 +64,7 @@ class HomeTabIntent extends Intent {
 class HomeTabAction extends Action<HomeTabIntent> {
   @override
   invoke(intent) {
+    final router = intent.ref.read(routerProvider);
     switch (intent.tab) {
       case HomeTabs.browse:
         router.go("/");
@@ -115,7 +117,7 @@ class CloseAppAction extends Action<CloseAppIntent> {
   @override
   invoke(intent) {
     if (kIsDesktop) {
-      DesktopTools.window.close();
+      exit(0);
     } else {
       SystemNavigator.pop();
     }
